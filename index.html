@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Darkroom — Photo Editor</title>
+<style>
+  :root{
+    --bg:#0d0e10;
+    --surface:#16181c;
+    --surface-2:#1e2127;
+    --line:#2a2e36;
+    --text:#e8e6e1;
+    --text-dim:#8a8f99;
+    --accent:#f2a33c;       /* darkroom safelight amber */
+    --accent-soft:rgba(242,163,60,.15);
+    --danger:#e05c5c;
+    --radius:10px;
+    font-size:15px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+
+  /* ── header ─────────────────────────── */
+  header{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 14px;border-bottom:1px solid var(--line);
+    background:var(--surface);flex:0 0 auto;
+  }
+  .logo{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.04em}
+  .logo .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+  .logo small{color:var(--text-dim);font-weight:400;display:none}
+  @media(min-width:560px){.logo small{display:inline}}
+  .spacer{flex:1}
+  .icon-btn{
+    width:38px;height:38px;border-radius:var(--radius);
+    display:grid;place-items:center;color:var(--text-dim);
+    transition:background .15s,color .15s;
+  }
+  .icon-btn:hover{background:var(--surface-2);color:var(--text)}
+  .icon-btn:disabled{opacity:.3;cursor:default}
+  .icon-btn:disabled:hover{background:none;color:var(--text-dim)}
+  .icon-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .pill-btn{
+    padding:8px 16px;border-radius:999px;background:var(--accent);color:#1a1205;
+    font-weight:600;transition:filter .15s;
+  }
+  .pill-btn:hover{filter:brightness(1.1)}
+  .pill-btn:disabled{opacity:.35;cursor:default;filter:none}
+
+  /* ── stage ──────────────────────────── */
+  #stage{
+    flex:1;position:relative;display:grid;place-items:center;
+    overflow:hidden;min-height:0;
+    background:radial-gradient(ellipse at 50% 40%, #15171b 0%, var(--bg) 70%);
+  }
+  #canvas{max-width:calc(100% - 32px);max-height:calc(100% - 32px);
+    box-shadow:0 12px 50px rgba(0,0,0,.6);border-radius:4px;display:none}
+  #stage.has-image #canvas{display:block}
+
+  /* empty state */
+  #dropzone{text-align:center;padding:40px;max-width:420px}
+  #dropzone .frame{
+    width:88px;height:88px;margin:0 auto 22px;border-radius:24px;
+    border:1.5px dashed var(--line);display:grid;place-items:center;
+    color:var(--accent);transition:border-color .2s, background .2s;
+  }
+  #dropzone svg{width:36px;height:36px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  #dropzone h1{font-size:1.35rem;margin-bottom:8px;font-weight:600}
+  #dropzone p{color:var(--text-dim);margin-bottom:22px;line-height:1.5}
+  #stage.dragging #dropzone .frame{border-color:var(--accent);background:var(--accent-soft)}
+  #stage.has-image #dropzone{display:none}
+
+  /* toast */
+  #toast{
+    position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    background:rgba(0,0,0,.7);backdrop-filter:blur(8px);
+    padding:7px 16px;border-radius:999px;font-size:.82rem;color:var(--text-dim);
+    opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;z-index:30;
+  }
+  #toast.show{opacity:1}
+
+  /* edit overlay (selective dots + heal paint) */
+  #editLayer{position:absolute;display:none;touch-action:none;z-index:10}
+  #stage.mode-selective #editLayer,#stage.mode-heal #editLayer{display:block}
+  #paint{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #stage.mode-heal #editLayer{cursor:crosshair}
+  .cpoint{
+    position:absolute;width:26px;height:26px;border-radius:50%;
+    transform:translate(-50%,-50%);
+    background:rgba(0,0,0,.55);border:2px solid #fff;
+    display:grid;place-items:center;font-size:.65rem;font-weight:700;color:#fff;
+    cursor:grab;user-select:none;
+  }
+  .cpoint.sel{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 3px rgba(242,163,60,.3)}
+  .cring{
+    position:absolute;border-radius:50%;transform:translate(-50%,-50%);
+    border:1.5px dashed rgba(242,163,60,.7);pointer-events:none;
+  }
+
+  /* crop overlay */
+  #cropLayer{position:absolute;inset:0;display:none;touch-action:none;z-index:10}
+  #stage.mode-crop #cropLayer{display:block}
+  #cropRect{
+    position:absolute;border:1.5px solid #fff;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;
+  }
+  #cropRect::before,#cropRect::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    border:0 solid rgba(255,255,255,.35);
+  }
+  #cropRect::before{border-left-width:1px;border-right-width:1px;left:33.33%;right:33.33%}
+  #cropRect::after{border-top-width:1px;border-bottom-width:1px;top:33.33%;bottom:33.33%}
+  .handle{position:absolute;width:22px;height:22px}
+  .handle::after{
+    content:"";position:absolute;width:14px;height:14px;background:#fff;border-radius:3px;
+    top:50%;left:50%;transform:translate(-50%,-50%);
+  }
+  .handle[data-h="nw"]{top:-11px;left:-11px;cursor:nwse-resize}
+  .handle[data-h="ne"]{top:-11px;right:-11px;cursor:nesw-resize}
+  .handle[data-h="sw"]{bottom:-11px;left:-11px;cursor:nesw-resize}
+  .handle[data-h="se"]{bottom:-11px;right:-11px;cursor:nwse-resize}
+
+  /* ── bottom panel ───────────────────── */
+  #panel{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);display:none}
+  body.has-image #panel{display:block}
+  .tool-body{padding:12px 14px 6px;min-height:96px}
+  .tool-pane{display:none}
+  .tool-pane.active{display:block}
+  .hint{font-size:.8rem;color:var(--text-dim);margin-bottom:8px}
+  .hint b{color:var(--text);font-weight:600}
+
+  /* tabs */
+  #tabs{display:flex;border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+  #tabs::-webkit-scrollbar{display:none}
+  .tab{
+    flex:1;min-width:70px;padding:10px 6px 12px;display:flex;flex-direction:column;align-items:center;gap:5px;
+    color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;
+    border-top:2px solid transparent;transition:color .15s;
+  }
+  .tab svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .tab.active{color:var(--accent);border-top-color:var(--accent)}
+  .tab:hover{color:var(--text)}
+  .tab.active:hover{color:var(--accent)}
+
+  /* sliders */
+  .sliders{display:grid;gap:4px;max-height:200px;overflow-y:auto;padding-right:4px}
+  @media(min-width:760px){.sliders{grid-template-columns:1fr 1fr;column-gap:28px}}
+  .ctl{display:grid;grid-template-columns:96px 1fr 44px 26px;align-items:center;gap:10px;padding:4px 0}
+  .ctl label{font-size:.82rem;color:var(--text-dim);white-space:nowrap}
+  .ctl output{font-size:.8rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+  .ctl .reset{
+    width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--text-dim);
+    font-size:1rem;line-height:1;opacity:0;transition:opacity .15s;
+  }
+  .ctl.changed .reset{opacity:1}
+  .ctl .reset:hover{background:var(--surface-2);color:var(--text)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:26px;background:transparent;cursor:pointer}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:var(--line)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--line)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--text);
+    margin-top:-6.5px;transition:transform .1s;
+  }
+  input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--text);border:none}
+  input[type=range]:active::-webkit-slider-thumb{transform:scale(1.25);background:var(--accent)}
+  input[type=range]:active::-moz-range-thumb{background:var(--accent)}
+  input[type=range]:disabled{opacity:.35;cursor:default}
+
+  /* looks strip */
+  #looksStrip{display:flex;gap:12px;overflow-x:auto;padding:4px 2px 10px;scrollbar-width:thin}
+  .look{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;align-items:center}
+  .look canvas{
+    width:84px;height:84px;object-fit:cover;border-radius:8px;
+    border:2px solid transparent;background:var(--surface-2);transition:border-color .15s;
+  }
+  .look.active canvas{border-color:var(--accent)}
+  .look span{font-size:.72rem;color:var(--text-dim)}
+  .look.active span{color:var(--accent)}
+
+  /* rows / chips */
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .chip{
+    padding:7px 14px;border-radius:999px;background:var(--surface-2);
+    font-size:.8rem;color:var(--text-dim);border:1px solid transparent;transition:all .15s;
+  }
+  .chip:hover{color:var(--text)}
+  .chip.active{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .chip.danger:hover{color:var(--danger);border-color:var(--danger)}
+  .row .sep{width:1px;height:24px;background:var(--line);margin:0 4px}
+  .row label{font-size:.8rem;color:var(--text-dim)}
+  select{
+    background:var(--surface-2);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:7px 10px;font:inherit;font-size:.85rem;
+  }
+  .ghost-btn{
+    padding:8px 16px;border-radius:999px;border:1px solid var(--line);
+    font-size:.85rem;color:var(--text-dim);transition:all .15s;
+  }
+  .ghost-btn:hover{color:var(--text);border-color:var(--text-dim)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="dot"></span>Darkroom <small>photo editor</small></div>
+  <div class="spacer"></div>
+  <button class="icon-btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled>
+    <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+  </button>
+  <button class="icon-btn" id="redoBtn" title="Redo (Ctrl+Shift+Z)" disabled>
+    <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>
+  </button>
+  <button class="icon-btn" id="compareBtn" title="Hold to compare with original" disabled>
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+  </button>
+  <button class="icon-btn" id="newBtn" title="Open another photo" disabled>
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/></svg>
+  </button>
+  <button class="pill-btn" id="exportBtn" disabled>Export</button>
+</header>
+
+<div id="stage">
+  <div id="dropzone">
+    <div class="frame">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.5-4.5L7 20"/></svg>
+    </div>
+    <h1>Open a photo to start editing</h1>
+    <p>Looks, tune, selective edits, healing, crop and effects — everything stays on your device.</p>
+    <button class="pill-btn" id="openBtn">Choose a photo</button>
+    <p style="margin-top:14px;font-size:.8rem">or drag &amp; drop it anywhere</p>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <div id="editLayer"><canvas id="paint"></canvas></div>
+
+  <div id="cropLayer">
+    <div id="cropRect">
+      <div class="handle" data-h="nw"></div><div class="handle" data-h="ne"></div>
+      <div class="handle" data-h="sw"></div><div class="handle" data-h="se"></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<div id="panel">
+  <div class="tool-body">
+
+    <!-- LOOKS -->
+    <div class="tool-pane active" data-pane="looks">
+      <div id="looksStrip"></div>
+    </div>
+
+    <!-- TUNE -->
+    <div class="tool-pane" data-pane="tune">
+      <div class="sliders" id="tuneSliders"></div>
+    </div>
+
+    <!-- SELECTIVE -->
+    <div class="tool-pane" data-pane="selective">
+      <p class="hint"><b>Tap the photo</b> to drop a control point, then adjust it locally. Drag points to move them.</p>
+      <div class="sliders" id="selSliders" style="max-height:150px">
+        <div class="ctl" data-sel="size">
+          <label for="sel_size">Size</label>
+          <input type="range" id="sel_size" min="5" max="60" value="22" disabled>
+          <output>22</output><span></span>
+        </div>
+        <div class="ctl" data-sel="bright">
+          <label for="sel_bright">Brightness</label>
+          <input type="range" id="sel_bright" min="-100" max="100" value="0" disabled>
+          <output>0</output><span></span>
+        </div>
+        <div class="ctl" data-sel="contrast">
+          <label for="sel_contrast">Contrast</label>
+          <input type="range" id="sel_contrast" min="-100" max="100" value="0" disabled>
+          <output>0</output><span></span>
+        </div>
+        <div class="ctl" data-sel="sat">
+          <label for="sel_sat">Saturation</label>
+          <input type="range" id="sel_sat" min="-100" max="100" value="0" disabled>
+          <output>0</output><span></span>
+        </div>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="chip danger" id="delPoint" disabled>Delete point</button>
+        <button class="chip danger" id="clearPoints" disabled>Clear all points</button>
+        <span id="pointCount" style="font-size:.78rem;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+    <!-- HEAL -->
+    <div class="tool-pane" data-pane="heal">
+      <p class="hint"><b>Brush over a blemish</b> or unwanted object — it's patched from the surrounding area when you release.</p>
+      <div class="ctl changed" style="max-width:480px">
+        <label for="brushSize">Brush size</label>
+        <input type="range" id="brushSize" min="8" max="120" value="36">
+        <output id="brushOut">36</output><span></span>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <button class="chip" id="healUndo" disabled>Undo last heal</button>
+        <button class="chip danger" id="healClear" disabled>Remove all heals</button>
+        <span id="healCount" style="font-size:.78rem;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+    <!-- DETAILS -->
+    <div class="tool-pane" data-pane="details">
+      <div class="sliders" id="detailSliders"></div>
+    </div>
+
+    <!-- EFFECTS -->
+    <div class="tool-pane" data-pane="effects">
+      <div class="sliders" id="fxSliders"></div>
+    </div>
+
+    <!-- CROP -->
+    <div class="tool-pane" data-pane="crop">
+      <div class="row" id="aspectRow">
+        <button class="chip active" data-aspect="free">Free</button>
+        <button class="chip" data-aspect="orig">Original</button>
+        <button class="chip" data-aspect="1">1:1</button>
+        <button class="chip" data-aspect="1.3333">4:3</button>
+        <button class="chip" data-aspect="1.5">3:2</button>
+        <button class="chip" data-aspect="1.7778">16:9</button>
+        <span class="sep"></span>
+        <button class="chip" id="rotL" title="Rotate left">⟲ 90°</button>
+        <button class="chip" id="rotR" title="Rotate right">⟳ 90°</button>
+        <button class="chip" id="flipH">Flip ↔</button>
+        <button class="chip" id="flipV">Flip ↕</button>
+      </div>
+      <div class="ctl changed" style="max-width:520px">
+        <label for="straighten">Straighten</label>
+        <input type="range" id="straighten" min="-45" max="45" value="0" step="0.5">
+        <output id="straightenOut">0°</output>
+        <button class="reset" id="straightenReset" title="Reset">×</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button class="pill-btn" id="cropApply">Apply crop</button>
+        <button class="ghost-btn" id="cropReset">Reset crop &amp; rotation</button>
+      </div>
+    </div>
+
+    <!-- EXPORT -->
+    <div class="tool-pane" data-pane="export">
+      <div class="row">
+        <label for="fmt">Format</label>
+        <select id="fmt">
+          <option value="image/jpeg">JPEG</option>
+          <option value="image/png">PNG</option>
+          <option value="image/webp">WebP</option>
+        </select>
+        <span class="sep"></span>
+        <div class="ctl changed" style="flex:1;min-width:240px;grid-template-columns:60px 1fr 44px">
+          <label for="quality">Quality</label>
+          <input type="range" id="quality" min="40" max="100" value="92">
+          <output id="qualityOut">92</output>
+        </div>
+      </div>
+      <div class="row">
+        <button class="pill-btn" id="downloadBtn">Download full resolution</button>
+        <span id="exportInfo" style="font-size:.8rem;color:var(--text-dim)"></span>
+      </div>
+    </div>
+
+  </div>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="looks">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/><path d="M12 3v6M19.8 7.5l-5.2 3M19.8 16.5l-5.2-3M12 21v-6M4.2 16.5l5.2-3M4.2 7.5l5.2 3"/></svg>
+      Looks</button>
+    <button class="tab" data-tab="tune">
+      <svg viewBox="0 0 24 24"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.2"/><circle cx="8" cy="16" r="2.2"/></svg>
+      Tune</button>
+    <button class="tab" data-tab="selective">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="8" stroke-dasharray="3 4"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></svg>
+      Selective</button>
+    <button class="tab" data-tab="heal">
+      <svg viewBox="0 0 24 24"><path d="M19 5 5 19"/><path d="m14.5 4.5 5 5"/><path d="M8 3 6.5 6.5 3 8l3.5 1.5L8 13l1.5-3.5L13 8 9.5 6.5Z"/></svg>
+      Heal</button>
+    <button class="tab" data-tab="details">
+      <svg viewBox="0 0 24 24"><path d="m12 3 2.2 6.6L21 12l-6.8 2.4L12 21l-2.2-6.6L3 12l6.8-2.4Z"/></svg>
+      Details</button>
+    <button class="tab" data-tab="effects">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4" stroke-dasharray="2 3"/></svg>
+      Effects</button>
+    <button class="tab" data-tab="crop">
+      <svg viewBox="0 0 24 24"><path d="M6 2v16a2 2 0 0 0 2 2h14"/><path d="M2 6h16a2 2 0 0 1 2 2v14"/></svg>
+      Crop</button>
+    <button class="tab" data-tab="export">
+      <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+      Export</button>
+  </nav>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" hidden>
+
+<script>
+"use strict";
+/* ───────────────────────── state ───────────────────────── */
+const ADJ_DEFAULTS = {
+  exposure:0, brightness:0, contrast:0, saturation:0,
+  warmth:0, tint:0, highlights:0, shadows:0,
+  sharpen:0, blur:0, vignette:0, grain:0, fade:0
+};
+let img = null;                  // original HTMLImageElement
+let workingFull = null;          // full-res canvas: original + heals baked in (lazy)
+let adj = {...ADJ_DEFAULTS};
+let xform = { rot:0, flipH:false, flipV:false, straighten:0, crop:null };
+let points = [];                 // selective: {u,v,size, bright, contrast, sat} in base-normalized space
+let selIdx = -1;
+let heals = [];                  // strokes: {pts:[{x,y}], r} in ORIGINAL image pixel coords
+let activeLook = "original";
+let history = [], future = [];
+let previewBase = null;          // downscaled transformed+cropped canvas
+const PREVIEW_MAX = 1280;
+const MAX_POINTS = 8;
+
+const $ = s => document.querySelector(s);
+const canvas = $("#canvas"), ctx = canvas.getContext("2d");
+const stage = $("#stage"), toast = $("#toast");
+const editLayer = $("#editLayer"), paint = $("#paint"), paintCtx = paint.getContext("2d");
+let mode = "none"; // none | crop | selective | heal
+
+/* ───────────────────────── controls config ───────────────────────── */
+const SLIDERS = {
+  tune: [
+    ["exposure","Exposure",-100,100],["brightness","Brightness",-100,100],
+    ["contrast","Contrast",-100,100],["saturation","Saturation",-100,100],
+    ["warmth","Warmth",-100,100],["tint","Tint",-100,100],
+    ["highlights","Highlights",-100,100],["shadows","Shadows",-100,100],
+  ],
+  details: [["sharpen","Structure",0,100],["blur","Soft blur",0,100]],
+  effects: [["vignette","Vignette",0,100],["grain","Grain",0,100],["fade","Fade",0,100]]
+};
+const LOOKS = {
+  original:{label:"Original", adj:{}},
+  pop:     {label:"Pop",      adj:{contrast:25,saturation:30,sharpen:18}},
+  golden:  {label:"Golden",   adj:{warmth:42,brightness:8,vignette:14,saturation:8}},
+  vintage: {label:"Vintage",  adj:{warmth:22,fade:42,vignette:28,saturation:-14,grain:14}},
+  film:    {label:"Faded film",adj:{fade:50,saturation:-18,warmth:10,grain:20,contrast:-6}},
+  noir:    {label:"Noir",     adj:{saturation:-100,contrast:36,grain:24,vignette:26}},
+  cool:    {label:"Cool",     adj:{warmth:-32,tint:-8,contrast:10,brightness:4}},
+  drama:   {label:"Drama",    adj:{contrast:40,highlights:-40,shadows:28,sharpen:28,saturation:10}},
+  soft:    {label:"Soft glow",adj:{blur:14,brightness:10,fade:18,warmth:8}},
+};
+
+function buildSliders(containerId, defs){
+  const el = $(containerId);
+  defs.forEach(([key,label,min,max])=>{
+    const row = document.createElement("div");
+    row.className = "ctl"; row.dataset.key = key;
+    row.innerHTML = `
+      <label for="sl_${key}">${label}</label>
+      <input type="range" id="sl_${key}" min="${min}" max="${max}" value="0" step="1" aria-label="${label}">
+      <output>0</output>
+      <button class="reset" title="Reset ${label}">×</button>`;
+    const input = row.querySelector("input"), out = row.querySelector("output");
+    input.addEventListener("input", ()=>{
+      adj[key] = +input.value; out.textContent = input.value;
+      row.classList.toggle("changed", +input.value !== 0);
+      requestRender();
+    });
+    input.addEventListener("change", pushHistory);
+    row.querySelector(".reset").addEventListener("click", ()=>{
+      adj[key] = 0; input.value = 0; out.textContent = "0";
+      row.classList.remove("changed"); requestRender(); pushHistory();
+    });
+    el.appendChild(row);
+  });
+}
+buildSliders("#tuneSliders", SLIDERS.tune);
+buildSliders("#detailSliders", SLIDERS.details);
+buildSliders("#fxSliders", SLIDERS.effects);
+
+function syncSliderUI(){
+  document.querySelectorAll(".ctl[data-key]").forEach(row=>{
+    const k = row.dataset.key, v = adj[k] ?? 0;
+    row.querySelector("input").value = v;
+    row.querySelector("output").textContent = v;
+    row.classList.toggle("changed", v !== 0);
+  });
+  $("#straighten").value = xform.straighten;
+  $("#straightenOut").textContent = xform.straighten + "°";
+}
+
+/* ───────────────────────── looks ───────────────────────── */
+function buildLooks(){
+  const strip = $("#looksStrip"); strip.innerHTML = "";
+  for (const [id, look] of Object.entries(LOOKS)){
+    const btn = document.createElement("button");
+    btn.className = "look" + (id===activeLook ? " active" : "");
+    btn.dataset.look = id;
+    const c = document.createElement("canvas"); c.width = 168; c.height = 168;
+    const span = document.createElement("span"); span.textContent = look.label;
+    btn.append(c, span);
+    btn.addEventListener("click", ()=>{
+      activeLook = id;
+      adj = {...ADJ_DEFAULTS, ...look.adj};
+      document.querySelectorAll(".look").forEach(l=>l.classList.toggle("active", l===btn));
+      syncSliderUI(); requestRender(); pushHistory();
+    });
+    strip.appendChild(btn);
+  }
+  renderLookThumbs();
+}
+function renderLookThumbs(){
+  if (!previewBase) return;
+  const s = Math.min(previewBase.width, previewBase.height);
+  const sx = (previewBase.width - s)/2, sy = (previewBase.height - s)/2;
+  const src = document.createElement("canvas");
+  src.width = src.height = 168;
+  src.getContext("2d").drawImage(previewBase, sx, sy, s, s, 0, 0, 168, 168);
+  document.querySelectorAll(".look").forEach(btn=>{
+    const look = LOOKS[btn.dataset.look];
+    renderPipeline(src, btn.querySelector("canvas"), {...ADJ_DEFAULTS, ...look.adj}, []);
+  });
+}
+
+/* ───────────────────────── geometry ───────────────────────── */
+function rot90Norm(){ return ((xform.rot % 360)+360)%360; }
+function transformedDims(scale){ // full-res transformed frame size before crop
+  const swap = rot90Norm()===90 || rot90Norm()===270;
+  return {
+    W: Math.round((swap ? img.naturalHeight : img.naturalWidth) * scale),
+    H: Math.round((swap ? img.naturalWidth : img.naturalHeight) * scale),
+    swap
+  };
+}
+function coverScale(W,H){
+  const a = xform.straighten * Math.PI/180;
+  const ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
+  return Math.max((W*ca + H*sa)/W, (W*sa + H*ca)/H);
+}
+/* matrix mapping ORIGINAL image px -> uncropped transformed canvas px (at given scale) */
+function imageToFrameMatrix(scale){
+  const {W,H} = transformedDims(scale);
+  const cover = coverScale(W,H);
+  return {
+    m: new DOMMatrix()
+      .translate(W/2, H/2)
+      .rotate(xform.straighten)
+      .scale(cover, cover)
+      .rotate(rot90Norm())
+      .scale(xform.flipH ? -1 : 1, xform.flipV ? -1 : 1)
+      .scale(scale, scale)
+      .translate(-img.naturalWidth/2, -img.naturalHeight/2),
+    W, H
+  };
+}
+/* screen point -> original image px */
+function screenToImage(clientX, clientY){
+  const r = canvas.getBoundingClientRect();
+  const u = (clientX - r.left)/r.width, v = (clientY - r.top)/r.height;
+  const crop = xform.crop || {x:0,y:0,w:1,h:1};
+  const {m,W,H} = imageToFrameMatrix(1);
+  const X = (crop.x + u*crop.w)*W, Y = (crop.y + v*crop.h)*H;
+  const p = m.inverse().transformPoint(new DOMPoint(X,Y));
+  return {x:p.x, y:p.y};
+}
+function getSource(){ return workingFull || img; }
+
+function buildBase(maxDim){
+  const src = getSource();
+  let {W,H} = transformedDims(1);
+  let scale = 1;
+  if (maxDim && Math.max(W,H) > maxDim) scale = maxDim / Math.max(W,H);
+  W = Math.round(W*scale); H = Math.round(H*scale);
+
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  g.imageSmoothingQuality = "high";
+  const cover = coverScale(W,H);
+  const swap = rot90Norm()===90 || rot90Norm()===270;
+  const dw = swap ? H : W, dh = swap ? W : H;
+
+  g.save();
+  g.translate(W/2, H/2);
+  g.rotate(xform.straighten * Math.PI/180);
+  g.scale(cover, cover);
+  g.rotate(rot90Norm() * Math.PI/180);
+  g.scale(xform.flipH ? -1 : 1, xform.flipV ? -1 : 1);
+  g.drawImage(src, -dw/2, -dh/2, dw, dh);
+  g.restore();
+
+  if (xform.crop){
+    const cr = xform.crop;
+    const cw = Math.max(2, Math.round(cr.w * W)), ch = Math.max(2, Math.round(cr.h * H));
+    const cc = document.createElement("canvas");
+    cc.width = cw; cc.height = ch;
+    cc.getContext("2d").drawImage(c, Math.round(cr.x*W), Math.round(cr.y*H), cw, ch, 0, 0, cw, ch);
+    return cc;
+  }
+  return c;
+}
+function invalidateBase(){
+  previewBase = img ? buildBase(PREVIEW_MAX) : null;
+}
+
+/* ───────────────────────── healing ───────────────────────── */
+function ensureWorking(){
+  if (workingFull) return;
+  workingFull = document.createElement("canvas");
+  workingFull.width = img.naturalWidth; workingFull.height = img.naturalHeight;
+  workingFull.getContext("2d").drawImage(img, 0, 0);
+}
+function rebuildWorking(){
+  workingFull = null;
+  if (heals.length){
+    ensureWorking();
+    const g = workingFull.getContext("2d");
+    heals.forEach(s => applyHealStroke(g, workingFull.width, workingFull.height, s));
+  }
+  invalidateBase();
+}
+function applyHealStroke(g, w, h, stroke){
+  const r = Math.max(4, stroke.r);
+  const spacing = r * 0.55;
+  let prev = null;
+  const stamps = [];
+  stroke.pts.forEach(p=>{
+    if (!prev){ stamps.push(p); prev = p; return; }
+    const d = Math.hypot(p.x-prev.x, p.y-prev.y);
+    if (d >= spacing){
+      const n = Math.floor(d / spacing);
+      for (let i=1;i<=n;i++)
+        stamps.push({x: prev.x + (p.x-prev.x)*i/n, y: prev.y + (p.y-prev.y)*i/n});
+      prev = p;
+    }
+  });
+  stamps.forEach(p => healStamp(g, w, h, p.x, p.y, r));
+}
+function healStamp(g, w, h, cx, cy, r){
+  cx = Math.round(cx); cy = Math.round(cy); r = Math.round(r);
+  const pad = Math.ceil(r * 3.2);
+  const bx = Math.max(0, cx - pad), by = Math.max(0, cy - pad);
+  const bw = Math.min(w, cx + pad) - bx, bh = Math.min(h, cy + pad) - by;
+  if (bw < 4 || bh < 4) return;
+  const id = g.getImageData(bx, by, bw, bh), d = id.data;
+  const lx = cx - bx, ly = cy - by;             // stamp center in local coords
+
+  // pick best source offset: 8 directions, compare a ring just outside the stamp
+  const dist = r * 2.3;
+  const ringN = 20, ringR = r * 1.15;
+  const ring = [];
+  for (let i=0;i<ringN;i++){
+    const a = i/ringN * Math.PI*2;
+    ring.push([Math.round(Math.cos(a)*ringR), Math.round(Math.sin(a)*ringR)]);
+  }
+  const px = (x,y)=>{ const o = (y*bw + x)*4; return [d[o],d[o+1],d[o+2]]; };
+  const inLocal = (x,y)=> x>=0 && y>=0 && x<bw && y<bh;
+  let best = null, bestScore = Infinity;
+  for (let k=0;k<8;k++){
+    const a = k/8 * Math.PI*2;
+    const ox = Math.round(Math.cos(a)*dist), oy = Math.round(Math.sin(a)*dist);
+    // whole source disk must be inside the image
+    if (cx+ox-r < 0 || cy+oy-r < 0 || cx+ox+r >= w || cy+oy+r >= h) continue;
+    let score = 0, cnt = 0;
+    for (const [rx,ry] of ring){
+      const dx = lx+rx, dy = ly+ry, sx = lx+ox+rx, sy = ly+oy+ry;
+      if (!inLocal(dx,dy) || !inLocal(sx,sy)) continue;
+      const A = px(dx,dy), B = px(sx,sy);
+      score += (A[0]-B[0])**2 + (A[1]-B[1])**2 + (A[2]-B[2])**2;
+      cnt++;
+    }
+    if (cnt < ringN*0.5) continue;
+    score /= cnt;
+    if (score < bestScore){ bestScore = score; best = [ox,oy]; }
+  }
+  if (!best) return; // brush touches edges everywhere — skip quietly
+
+  const [ox,oy] = best;
+  const srcCopy = new Uint8ClampedArray(d);  // sample from pre-stamp pixels
+  for (let y = Math.max(0, ly-r); y <= Math.min(bh-1, ly+r); y++){
+    for (let x = Math.max(0, lx-r); x <= Math.min(bw-1, lx+r); x++){
+      const dd = Math.hypot(x-lx, y-ly) / r;
+      if (dd > 1) continue;
+      const alpha = dd < 0.6 ? 1 : 1 - (dd-0.6)/0.4;      // feathered edge
+      const sx = x+ox, sy = y+oy;
+      if (!inLocal(sx,sy)) continue;
+      const o = (y*bw + x)*4, so = (sy*bw + sx)*4;
+      d[o]   = srcCopy[so]  *alpha + d[o]  *(1-alpha);
+      d[o+1] = srcCopy[so+1]*alpha + d[o+1]*(1-alpha);
+      d[o+2] = srcCopy[so+2]*alpha + d[o+2]*(1-alpha);
+    }
+  }
+  g.putImageData(id, bx, by);
+}
+function updateHealUI(){
+  $("#healUndo").disabled = $("#healClear").disabled = heals.length === 0;
+  $("#healCount").textContent = heals.length ? heals.length + " heal" + (heals.length>1?"s":"") : "";
+}
+$("#brushSize").addEventListener("input", e=>$("#brushOut").textContent = e.target.value);
+$("#healUndo").addEventListener("click", ()=>{
+  heals.pop(); rebuildWorking(); requestRender(); renderLookThumbs(); updateHealUI(); pushHistory();
+});
+$("#healClear").addEventListener("click", ()=>{
+  heals = []; rebuildWorking(); requestRender(); renderLookThumbs(); updateHealUI(); pushHistory();
+});
+
+/* heal brush interaction */
+let healStrokeLive = null;
+function healDown(e){
+  if (mode !== "heal" || !img) return;
+  e.preventDefault();
+  editLayer.setPointerCapture(e.pointerId);
+  const p = screenToImage(e.clientX, e.clientY);
+  const r = canvas.getBoundingClientRect();
+  const edge = screenToImage(e.clientX + +$("#brushSize").value/2, e.clientY);
+  const rImg = Math.max(4, Math.hypot(edge.x-p.x, edge.y-p.y));
+  healStrokeLive = { pts:[p], r:rImg, screen:[[e.clientX-r.left, e.clientY-r.top]] };
+  drawHealPreview();
+}
+function healMove(e){
+  if (!healStrokeLive) return;
+  const r = canvas.getBoundingClientRect();
+  healStrokeLive.pts.push(screenToImage(e.clientX, e.clientY));
+  healStrokeLive.screen.push([e.clientX-r.left, e.clientY-r.top]);
+  drawHealPreview();
+}
+function healUp(){
+  if (!healStrokeLive) return;
+  const stroke = { pts: healStrokeLive.pts, r: healStrokeLive.r };
+  healStrokeLive = null;
+  paintCtx.clearRect(0,0,paint.width,paint.height);
+  ensureWorking();
+  applyHealStroke(workingFull.getContext("2d"), workingFull.width, workingFull.height, stroke);
+  heals.push(stroke);
+  invalidateBase(); requestRender(); renderLookThumbs(); updateHealUI(); pushHistory();
+}
+function drawHealPreview(){
+  const g = paintCtx;
+  g.clearRect(0,0,paint.width,paint.height);
+  if (!healStrokeLive) return;
+  g.strokeStyle = "rgba(242,163,60,.85)";
+  g.fillStyle = "rgba(242,163,60,.3)";
+  g.lineWidth = +$("#brushSize").value;
+  g.lineCap = g.lineJoin = "round";
+  const s = healStrokeLive.screen;
+  g.beginPath();
+  g.moveTo(s[0][0], s[0][1]);
+  for (let i=1;i<s.length;i++) g.lineTo(s[i][0], s[i][1]);
+  g.stroke();
+}
+
+/* ───────────────────────── selective points ───────────────────────── */
+const SEL_DEFAULT = { size:22, bright:0, contrast:0, sat:0 };
+function selSliderRefs(){
+  return {
+    size: $("#sel_size"), bright: $("#sel_bright"),
+    contrast: $("#sel_contrast"), sat: $("#sel_sat")
+  };
+}
+function syncSelUI(){
+  const refs = selSliderRefs();
+  const p = points[selIdx];
+  for (const k in refs){
+    refs[k].disabled = !p;
+    const v = p ? (k==="size" ? Math.round(p.size*100) : p[k]) : (k==="size"?22:0);
+    refs[k].value = v;
+    refs[k].closest(".ctl").querySelector("output").textContent = v;
+  }
+  $("#delPoint").disabled = !p;
+  $("#clearPoints").disabled = points.length === 0;
+  $("#pointCount").textContent = points.length ? `${points.length} / ${MAX_POINTS} points` : "";
+  drawPoints();
+}
+Object.entries(selSliderRefs()).forEach(([k, input])=>{
+  input.addEventListener("input", ()=>{
+    const p = points[selIdx]; if (!p) return;
+    if (k === "size") p.size = +input.value/100;
+    else p[k] = +input.value;
+    input.closest(".ctl").querySelector("output").textContent = input.value;
+    drawPoints(); requestRender();
+  });
+  input.addEventListener("change", pushHistory);
+});
+$("#delPoint").addEventListener("click", ()=>{
+  if (selIdx < 0) return;
+  points.splice(selIdx, 1); selIdx = points.length - 1;
+  syncSelUI(); requestRender(); pushHistory();
+});
+$("#clearPoints").addEventListener("click", ()=>{
+  points = []; selIdx = -1;
+  syncSelUI(); requestRender(); pushHistory();
+});
+
+function drawPoints(){
+  editLayer.querySelectorAll(".cpoint,.cring").forEach(n=>n.remove());
+  if (mode !== "selective") return;
+  const r = canvas.getBoundingClientRect();
+  points.forEach((p, i)=>{
+    const x = p.u * r.width, y = p.v * r.height;
+    if (i === selIdx){
+      const ring = document.createElement("div");
+      ring.className = "cring";
+      const d = p.size * Math.min(r.width, r.height) * 2;
+      ring.style.cssText = `left:${x}px;top:${y}px;width:${d}px;height:${d}px`;
+      editLayer.appendChild(ring);
+    }
+    const dot = document.createElement("div");
+    dot.className = "cpoint" + (i===selIdx ? " sel" : "");
+    dot.style.left = x + "px"; dot.style.top = y + "px";
+    dot.textContent = i+1;
+    dot.dataset.idx = i;
+    editLayer.appendChild(dot);
+  });
+}
+
+/* selective interactions: tap to add, drag to move */
+let dragPoint = null;
+function selDown(e){
+  if (mode !== "selective" || !img) return;
+  e.preventDefault();
+  const dot = e.target.closest(".cpoint");
+  const r = canvas.getBoundingClientRect();
+  if (dot){
+    selIdx = +dot.dataset.idx;
+    dragPoint = { idx: selIdx, moved:false };
+    editLayer.setPointerCapture(e.pointerId);
+    syncSelUI();
+    return;
+  }
+  // add a point
+  if (points.length >= MAX_POINTS){ showToast(`Up to ${MAX_POINTS} points`, true); return; }
+  const u = (e.clientX - r.left)/r.width, v = (e.clientY - r.top)/r.height;
+  if (u<0||u>1||v<0||v>1) return;
+  points.push({u, v, ...SEL_DEFAULT, size:0.22});
+  selIdx = points.length - 1;
+  syncSelUI(); requestRender(); pushHistory();
+}
+function selMove(e){
+  if (!dragPoint) return;
+  const r = canvas.getBoundingClientRect();
+  const p = points[dragPoint.idx];
+  p.u = clamp((e.clientX - r.left)/r.width, 0, 1);
+  p.v = clamp((e.clientY - r.top)/r.height, 0, 1);
+  dragPoint.moved = true;
+  drawPoints(); requestRender();
+}
+function selUp(){
+  if (dragPoint?.moved) pushHistory();
+  dragPoint = null;
+}
+
+editLayer.addEventListener("pointerdown", e=>{ mode==="heal" ? healDown(e) : selDown(e); });
+editLayer.addEventListener("pointermove", e=>{ mode==="heal" ? healMove(e) : selMove(e); });
+editLayer.addEventListener("pointerup",   ()=>{ mode==="heal" ? healUp() : selUp(); });
+editLayer.addEventListener("pointercancel", ()=>{ healStrokeLive=null; dragPoint=null; paintCtx.clearRect(0,0,paint.width,paint.height); });
+
+function layoutEditLayer(){
+  const r = canvas.getBoundingClientRect(), s = stage.getBoundingClientRect();
+  editLayer.style.left = (r.left - s.left) + "px";
+  editLayer.style.top = (r.top - s.top) + "px";
+  editLayer.style.width = r.width + "px";
+  editLayer.style.height = r.height + "px";
+  paint.width = Math.round(r.width); paint.height = Math.round(r.height);
+  drawPoints();
+}
+
+/* remap selective points across geometry changes */
+function remapPointsRot(dir){       // dir: +90 (CW) or -90
+  points.forEach(p=>{
+    const {u,v} = p;
+    if (dir > 0){ p.u = 1 - v; p.v = u; } else { p.u = v; p.v = 1 - u; }
+  });
+}
+function remapPointsFlip(hor){
+  points.forEach(p=>{ if (hor) p.u = 1 - p.u; else p.v = 1 - p.v; });
+}
+function remapPointsCrop(cr, oldW, oldH){
+  const newMin = Math.min(oldW*cr.w, oldH*cr.h), oldMin = Math.min(oldW, oldH);
+  points = points.filter(p=>{
+    p.u = (p.u - cr.x)/cr.w; p.v = (p.v - cr.y)/cr.h;
+    p.size = p.size * oldMin / newMin;
+    return p.u > -0.05 && p.u < 1.05 && p.v > -0.05 && p.v < 1.05;
+  });
+  if (selIdx >= points.length) selIdx = points.length - 1;
+}
+
+/* ───────────────────────── render pipeline ───────────────────────── */
+function renderPipeline(srcCanvas, dstCanvas, A, pts){
+  const w = srcCanvas.width, h = srcCanvas.height;
+  dstCanvas.width = w; dstCanvas.height = h;
+  const g = dstCanvas.getContext("2d");
+
+  /* pass 1: GPU filters */
+  const bright = 1 + (A.brightness + A.exposure*0.8)/130;
+  const contr  = 1 + A.contrast/130;
+  const sat    = 1 + A.saturation/100;
+  const blur   = A.blur > 0 ? (A.blur/100) * Math.max(w,h)/240 : 0;
+  const parts = [];
+  if (bright !== 1) parts.push(`brightness(${bright})`);
+  if (contr  !== 1) parts.push(`contrast(${contr})`);
+  if (sat    !== 1) parts.push(`saturate(${Math.max(0,sat)})`);
+  if (blur   > 0)  parts.push(`blur(${blur.toFixed(2)}px)`);
+  g.filter = parts.length ? parts.join(" ") : "none";
+  g.drawImage(srcCanvas, 0, 0);
+  g.filter = "none";
+
+  /* pass 2: global pixel ops */
+  const needPix = A.warmth||A.tint||A.highlights||A.shadows||A.fade||A.grain;
+  if (needPix){
+    const id = g.getImageData(0,0,w,h), d = id.data;
+    const wm = A.warmth*0.45, tn = A.tint*0.35;
+    const hi = A.highlights/100, sh = A.shadows/100;
+    const fadeK = (A.fade/100)*0.5, grainK = A.grain*0.9;
+    for (let i=0;i<d.length;i+=4){
+      let r=d[i], gr=d[i+1], b=d[i+2];
+      if (wm){ r+=wm; b-=wm; }
+      if (tn){ gr-=tn; r+=tn*0.4; b+=tn*0.4; }
+      if (hi||sh){
+        const luma = 0.299*r+0.587*gr+0.114*b;
+        if (luma>140 && hi){ const f=(luma-140)/115*hi*0.6; r+=(255-r)*f; gr+=(255-gr)*f; b+=(255-b)*f; }
+        else if (luma<=120 && sh){ const f=(120-luma)/120*sh*0.6; r+=(140-r)*f*0.9; gr+=(140-gr)*f*0.9; b+=(140-b)*f*0.9; }
+      }
+      if (fadeK){ r=r*(1-fadeK)+125*fadeK; gr=gr*(1-fadeK)+125*fadeK; b=b*(1-fadeK)+125*fadeK; }
+      if (grainK){ const n=(Math.random()-0.5)*grainK; r+=n; gr+=n; b+=n; }
+      d[i]=r<0?0:r>255?255:r;
+      d[i+1]=gr<0?0:gr>255?255:gr;
+      d[i+2]=b<0?0:b>255?255:b;
+    }
+    g.putImageData(id,0,0);
+  }
+
+  /* pass 3: selective control points (local pixel ops) */
+  if (pts && pts.length) applySelective(g, w, h, pts);
+
+  /* pass 4: sharpen */
+  if (A.sharpen > 0) convolveSharpen(g, w, h, A.sharpen/100);
+
+  /* pass 5: vignette */
+  if (A.vignette > 0){
+    const k = A.vignette/100;
+    const grd = g.createRadialGradient(w/2,h/2, Math.min(w,h)*0.35, w/2,h/2, Math.hypot(w,h)/2);
+    grd.addColorStop(0, "rgba(0,0,0,0)");
+    grd.addColorStop(1, `rgba(0,0,0,${0.75*k})`);
+    g.fillStyle = grd; g.fillRect(0,0,w,h);
+  }
+}
+function applySelective(g, w, h, pts){
+  for (const p of pts){
+    if (!p.bright && !p.contrast && !p.sat) continue;
+    const R = Math.max(4, p.size * Math.min(w,h));
+    const cx = p.u*w, cy = p.v*h;
+    const x0 = Math.max(0, Math.floor(cx-R)), y0 = Math.max(0, Math.floor(cy-R));
+    const x1 = Math.min(w-1, Math.ceil(cx+R)), y1 = Math.min(h-1, Math.ceil(cy+R));
+    if (x1<=x0 || y1<=y0) continue;
+    const bw = x1-x0+1, bh = y1-y0+1;
+    const id = g.getImageData(x0, y0, bw, bh), d = id.data;
+    const br = p.bright*0.8, cn = p.contrast/130, st = p.sat/100;
+    const R2 = R*R;
+    for (let y=0;y<bh;y++){
+      const dy = (y0+y) - cy;
+      for (let x=0;x<bw;x++){
+        const dx = (x0+x) - cx;
+        const q = (dx*dx + dy*dy)/R2;
+        if (q >= 1) continue;
+        const t = 1-q, wgt = t*t;             // smooth radial falloff
+        const o = (y*bw + x)*4;
+        let r=d[o], gr=d[o+1], b=d[o+2];
+        if (st){
+          const luma = 0.299*r+0.587*gr+0.114*b, k = 1 + st*wgt;
+          r = luma + (r-luma)*k; gr = luma + (gr-luma)*k; b = luma + (b-luma)*k;
+        }
+        if (cn){
+          const k = 1 + cn*wgt;
+          r = 128 + (r-128)*k; gr = 128 + (gr-128)*k; b = 128 + (b-128)*k;
+        }
+        if (br){ const a = br*wgt; r+=a; gr+=a; b+=a; }
+        d[o]=r<0?0:r>255?255:r;
+        d[o+1]=gr<0?0:gr>255?255:gr;
+        d[o+2]=b<0?0:b>255?255:b;
+      }
+    }
+    g.putImageData(id, x0, y0);
+  }
+}
+function convolveSharpen(g, w, h, amount){
+  const id = g.getImageData(0,0,w,h);
+  const src = new Uint8ClampedArray(id.data);
+  const d = id.data, a = amount*0.9, c = 1 + 4*a;
+  for (let y=1;y<h-1;y++){
+    let i = (y*w+1)*4;
+    for (let x=1;x<w-1;x++, i+=4){
+      for (let ch=0;ch<3;ch++){
+        const v = src[i+ch]*c - a*(src[i-4+ch]+src[i+4+ch]+src[i-w*4+ch]+src[i+w*4+ch]);
+        d[i+ch] = v<0?0:v>255?255:v;
+      }
+    }
+  }
+  g.putImageData(id,0,0);
+}
+
+/* preview render loop */
+let renderQueued = false, showOriginal = false;
+function requestRender(){
+  if (renderQueued || !img) return;
+  renderQueued = true;
+  requestAnimationFrame(()=>{
+    renderQueued = false;
+    if (!previewBase) invalidateBase();
+    if (showOriginal){
+      canvas.width = previewBase.width; canvas.height = previewBase.height;
+      ctx.drawImage(previewBase,0,0);
+    } else {
+      renderPipeline(previewBase, canvas, adj, points);
+    }
+    if (mode==="selective" || mode==="heal") layoutEditLayer();
+  });
+}
+
+/* ───────────────────────── history ───────────────────────── */
+function snapshot(){ return JSON.stringify({adj, xform, activeLook, points, heals}); }
+function pushHistory(){
+  const s = snapshot();
+  if (history[history.length-1] === s) return;
+  history.push(s); future = [];
+  if (history.length > 60) history.shift();
+  updateHistoryBtns();
+}
+function restore(s){
+  const o = JSON.parse(s);
+  const healsChanged = JSON.stringify(heals) !== JSON.stringify(o.heals);
+  adj = o.adj; xform = o.xform; activeLook = o.activeLook;
+  points = o.points || []; heals = o.heals || [];
+  if (selIdx >= points.length) selIdx = points.length - 1;
+  if (healsChanged) rebuildWorking(); else invalidateBase();
+  syncSliderUI(); syncSelUI(); updateHealUI();
+  document.querySelectorAll(".look").forEach(l=>l.classList.toggle("active", l.dataset.look===activeLook));
+  renderLookThumbs(); requestRender();
+}
+function updateHistoryBtns(){
+  $("#undoBtn").disabled = history.length < 2;
+  $("#redoBtn").disabled = future.length === 0;
+}
+$("#undoBtn").addEventListener("click", ()=>{
+  if (history.length < 2) return;
+  future.push(history.pop());
+  restore(history[history.length-1]);
+  updateHistoryBtns();
+});
+$("#redoBtn").addEventListener("click", ()=>{
+  if (!future.length) return;
+  const s = future.pop();
+  history.push(s); restore(s); updateHistoryBtns();
+});
+
+/* ───────────────────────── compare ───────────────────────── */
+const cmp = $("#compareBtn");
+cmp.addEventListener("pointerdown", e=>{ e.preventDefault(); showOriginal = true; showToast("Before"); requestRender(); });
+const cmpUp = ()=>{ if (!showOriginal) return; showOriginal = false; hideToast(); requestRender(); };
+window.addEventListener("pointerup", cmpUp);
+cmp.addEventListener("pointerleave", cmpUp);
+
+let toastTimer;
+function showToast(msg, autoHide){
+  toast.textContent = msg; toast.classList.add("show");
+  clearTimeout(toastTimer);
+  if (autoHide) toastTimer = setTimeout(hideToast, 1800);
+}
+function hideToast(){ toast.classList.remove("show"); }
+
+/* ───────────────────────── tabs / modes ───────────────────────── */
+document.querySelectorAll(".tab").forEach(t=>{
+  t.addEventListener("click", ()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active", x===t));
+    document.querySelectorAll(".tool-pane").forEach(p=>p.classList.toggle("active", p.dataset.pane===t.dataset.tab));
+    setMode(t.dataset.tab === "crop" ? "crop"
+          : t.dataset.tab === "selective" ? "selective"
+          : t.dataset.tab === "heal" ? "heal" : "none");
+  });
+});
+function setMode(m){
+  mode = m;
+  stage.classList.toggle("mode-crop", m==="crop");
+  stage.classList.toggle("mode-selective", m==="selective");
+  stage.classList.toggle("mode-heal", m==="heal");
+  if (m==="crop") enterCrop();
+  if (m==="selective" || m==="heal"){ layoutEditLayer(); }
+  if (m==="selective") syncSelUI();
+}
+
+/* ───────────────────────── crop mode ───────────────────────── */
+const cropRect = $("#cropRect");
+let cropAspect = null;
+let cr = {x:0.02,y:0.02,w:0.96,h:0.96};
+
+function canvasDisplayRect(){
+  const r = canvas.getBoundingClientRect(), s = stage.getBoundingClientRect();
+  return {left:r.left-s.left, top:r.top-s.top, width:r.width, height:r.height};
+}
+function layoutCropRect(){
+  const r = canvasDisplayRect();
+  cropRect.style.left = (r.left + cr.x*r.width) + "px";
+  cropRect.style.top = (r.top + cr.y*r.height) + "px";
+  cropRect.style.width = (cr.w*r.width) + "px";
+  cropRect.style.height = (cr.h*r.height) + "px";
+}
+function enterCrop(){
+  if (!img) return;
+  cr = {x:0.02,y:0.02,w:0.96,h:0.96};
+  applyAspect();
+}
+function applyAspect(){
+  if (!cropAspect){ layoutCropRect(); return; }
+  const r = canvasDisplayRect();
+  const dispAspect = r.width / r.height;
+  let w = cr.w, h = (cr.w * dispAspect) / cropAspect;
+  if (h > 0.96){ h = 0.96; w = (h * cropAspect) / dispAspect; }
+  cr.w = Math.min(w, 0.96); cr.h = Math.min(h, 0.96);
+  cr.x = Math.min(cr.x, 1-cr.w); cr.y = Math.min(cr.y, 1-cr.h);
+  layoutCropRect();
+}
+$("#aspectRow").addEventListener("click", e=>{
+  const b = e.target.closest("[data-aspect]"); if (!b) return;
+  document.querySelectorAll("#aspectRow [data-aspect]").forEach(x=>x.classList.toggle("active", x===b));
+  const v = b.dataset.aspect;
+  if (v === "free") cropAspect = null;
+  else if (v === "orig") cropAspect = previewBase.width / previewBase.height;
+  else cropAspect = parseFloat(v);
+  applyAspect();
+});
+
+let drag = null;
+cropRect.addEventListener("pointerdown", e=>{
+  e.preventDefault();
+  const handle = e.target.closest(".handle");
+  drag = {
+    mode: handle ? handle.dataset.h : "move",
+    startX: e.clientX, startY: e.clientY,
+    orig: {...cr}, rect: canvasDisplayRect()
+  };
+  cropRect.setPointerCapture(e.pointerId);
+});
+cropRect.addEventListener("pointermove", e=>{
+  if (!drag) return;
+  const dx = (e.clientX - drag.startX) / drag.rect.width;
+  const dy = (e.clientY - drag.startY) / drag.rect.height;
+  const o = drag.orig, MIN = 0.06;
+  if (drag.mode === "move"){
+    cr.x = clamp(o.x + dx, 0, 1 - o.w);
+    cr.y = clamp(o.y + dy, 0, 1 - o.h);
+  } else {
+    let x1 = o.x, y1 = o.y, x2 = o.x + o.w, y2 = o.y + o.h;
+    if (drag.mode.includes("w")) x1 = clamp(o.x + dx, 0, x2 - MIN);
+    if (drag.mode.includes("e")) x2 = clamp(o.x + o.w + dx, x1 + MIN, 1);
+    if (drag.mode.includes("n")) y1 = clamp(o.y + dy, 0, y2 - MIN);
+    if (drag.mode.includes("s")) y2 = clamp(o.y + o.h + dy, y1 + MIN, 1);
+    cr = {x:x1, y:y1, w:x2-x1, h:y2-y1};
+    if (cropAspect){
+      const dispAspect = drag.rect.width / drag.rect.height;
+      let h = (cr.w * dispAspect) / cropAspect;
+      if (drag.mode.includes("n")) cr.y = y2 - h;
+      cr.h = h;
+      if (cr.y < 0) cr.y = 0;
+      if (cr.y + cr.h > 1){ cr.h = 1 - cr.y; cr.w = (cr.h * cropAspect) / dispAspect; if (drag.mode.includes("w")) cr.x = x2 - cr.w; }
+    }
+  }
+  layoutCropRect();
+});
+const endDrag = ()=>{ drag = null; };
+cropRect.addEventListener("pointerup", endDrag);
+cropRect.addEventListener("pointercancel", endDrag);
+function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+
+$("#rotL").addEventListener("click", ()=>{ xform.rot -= 90; remapPointsRot(-90); commitTransform(); });
+$("#rotR").addEventListener("click", ()=>{ xform.rot += 90; remapPointsRot(+90); commitTransform(); });
+$("#flipH").addEventListener("click", ()=>{ xform.flipH = !xform.flipH; remapPointsFlip(true); commitTransform(); });
+$("#flipV").addEventListener("click", ()=>{ xform.flipV = !xform.flipV; remapPointsFlip(false); commitTransform(); });
+$("#straighten").addEventListener("input", e=>{
+  xform.straighten = +e.target.value;
+  $("#straightenOut").textContent = e.target.value + "°";
+  invalidateBase(); requestRender();
+  requestAnimationFrame(layoutCropRect);
+});
+$("#straighten").addEventListener("change", pushHistory);
+$("#straightenReset").addEventListener("click", ()=>{
+  xform.straighten = 0; syncSliderUI(); commitTransform();
+});
+function commitTransform(){
+  invalidateBase(); requestRender(); renderLookThumbs(); pushHistory();
+  requestAnimationFrame(layoutCropRect);
+}
+
+$("#cropApply").addEventListener("click", ()=>{
+  const prevDims = { w: previewBase.width, h: previewBase.height };
+  const prev = xform.crop || {x:0,y:0,w:1,h:1};
+  remapPointsCrop(cr, prevDims.w, prevDims.h);
+  xform.crop = {
+    x: prev.x + cr.x*prev.w,
+    y: prev.y + cr.y*prev.h,
+    w: cr.w*prev.w,
+    h: cr.h*prev.h
+  };
+  commitTransform();
+  syncSelUI();
+  showToast("Crop applied", true);
+  cr = {x:0.02,y:0.02,w:0.96,h:0.96};
+  requestAnimationFrame(layoutCropRect);
+});
+$("#cropReset").addEventListener("click", ()=>{
+  xform.crop = null; xform.rot = 0; xform.flipH = xform.flipV = false; xform.straighten = 0;
+  syncSliderUI(); commitTransform();
+  cr = {x:0.02,y:0.02,w:0.96,h:0.96};
+  requestAnimationFrame(layoutCropRect);
+});
+window.addEventListener("resize", ()=>{
+  if (mode==="crop") layoutCropRect();
+  if (mode==="selective"||mode==="heal") layoutEditLayer();
+});
+
+/* ───────────────────────── open / load ───────────────────────── */
+const fileInput = $("#fileInput");
+$("#openBtn").addEventListener("click", ()=>fileInput.click());
+$("#newBtn").addEventListener("click", ()=>fileInput.click());
+fileInput.addEventListener("change", ()=>{ if (fileInput.files[0]) loadFile(fileInput.files[0]); fileInput.value=""; });
+
+["dragover","dragenter"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); stage.classList.add("dragging"); }));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); if(ev==="drop"||e.target===document.documentElement) stage.classList.remove("dragging"); }));
+document.addEventListener("drop", e=>{
+  const f = [...(e.dataTransfer?.files||[])].find(f=>f.type.startsWith("image/"));
+  if (f) loadFile(f);
+});
+
+function loadFile(file){
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.onload = ()=>{
+    URL.revokeObjectURL(url);
+    img = im; workingFull = null;
+    adj = {...ADJ_DEFAULTS};
+    xform = { rot:0, flipH:false, flipV:false, straighten:0, crop:null };
+    points = []; selIdx = -1; heals = [];
+    activeLook = "original";
+    history = []; future = [];
+    invalidateBase();
+    stage.classList.add("has-image");
+    document.body.classList.add("has-image");
+    ["#compareBtn","#newBtn","#exportBtn"].forEach(s=>$(s).disabled=false);
+    syncSliderUI(); syncSelUI(); updateHealUI();
+    buildLooks(); requestRender(); pushHistory();
+    $("#exportInfo").textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
+    showToast("Photo loaded — pick a look or fine-tune", true);
+  };
+  im.onerror = ()=>showToast("Couldn't open that file — try a JPG or PNG", true);
+  im.src = url;
+}
+
+/* ───────────────────────── export ───────────────────────── */
+$("#quality").addEventListener("input", e=>$("#qualityOut").textContent = e.target.value);
+$("#exportBtn").addEventListener("click", ()=>document.querySelector('[data-tab="export"]').click());
+$("#downloadBtn").addEventListener("click", async ()=>{
+  if (!img) return;
+  showToast("Rendering full resolution…");
+  await new Promise(r=>setTimeout(r, 30));
+  try{
+    const full = buildBase(0);
+    const out = document.createElement("canvas");
+    renderPipeline(full, out, adj, points);
+    const type = $("#fmt").value;
+    const q = +$("#quality").value / 100;
+    out.toBlob(blob=>{
+      if (!blob){ showToast("Export failed — try PNG", true); return; }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "darkroom-edit." + (type==="image/png"?"png":type==="image/webp"?"webp":"jpg");
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+      showToast("Saved ✓", true);
+    }, type, q);
+  } catch(err){
+    showToast("Export failed: " + err.message, true);
+  }
+});
+
+/* keyboard shortcuts */
+document.addEventListener("keydown", e=>{
+  if (e.target.matches("input,select")) return;
+  if ((e.ctrlKey||e.metaKey) && e.key==="z" && !e.shiftKey){ e.preventDefault(); $("#undoBtn").click(); }
+  if ((e.ctrlKey||e.metaKey) && (e.key==="y" || (e.key==="z"&&e.shiftKey))){ e.preventDefault(); $("#redoBtn").click(); }
+  if (e.key==="Delete" && mode==="selective"){ $("#delPoint").click(); }
+});
+</script>
+</body>
+</html>
