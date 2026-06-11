@@ -1,226 +1,112 @@
-# Darkroom — Photo Editor
+# Darkroom — A Photo Editor in One HTML File
 
-A single-file, fully client-side photo editor built as an experiment with Claude. Everything stays on your device.
+> A Snapseed-style photo editor that runs entirely in your browser.
+> No backend, no build step, no dependencies. Built as an experiment with Claude.
 
-## Features
-
-### 🎨 **Looks**
-Nine curated presets: Original, Pop, Golden, Vintage, Faded Film, Noir, Cool, Drama, Soft Glow. Live thumbnails render from your actual photo.
-
-### 🎚️ **Tune**
-Global adjustments with independent sliders:
-- Exposure, Brightness, Contrast, Saturation
-- Warmth, Tint, Highlights, Shadows
-
-### 🎯 **Selective**
-Snapseed-style control points for local edits. Tap the photo to drop a point (up to 8), then adjust:
-- **Size** — radius of the adjustment zone (smooth radial falloff)
-- **Brightness** — lighten or darken locally
-- **Contrast** — tighten or soften local contrast
-- **Saturation** — color punch or desaturate specific areas
-
-Drag points to reposition. Points auto-remap when you rotate, flip, or crop.
-
-### 🩹 **Heal**
-Clone-based healing brush. Paint over blemishes or unwanted objects; on release, the tool:
-1. Scans 8 candidate patches around your stroke
-2. Scores each by boundary match (ring SSD)
-3. Blends the best one in with a feathered edge
-
-Works best on skin, sky, and uniform texture. Adjustable brush size, undo last heal, clear all heals.
-
-### ✨ **Details**
-- **Structure** — unsharp mask (sharpening via 3×3 convolution)
-- **Soft Blur** — gaussian-ish blur for glow effects
-
-### 🌀 **Effects**
-- **Vignette** — darkens edges
-- **Grain** — adds film grain
-- **Fade** — bleaches towards white (fades contrast)
-
-### 🔲 **Crop**
-- Free or locked aspect (1:1, 4:3, 3:2, 16:9, original)
-- Rotate 90° CW/CCW, flip horizontal/vertical
-- Straighten slider with auto-fill scaling
-- Rule-of-thirds grid overlay
-
-### 💾 **Export**
-- Format: JPEG, PNG, WebP
-- Quality slider (40–100%)
-- Full-resolution output (native image size)
-- Renders at actual pixels; preview downscaled to 1280px for performance
-
-### 🔄 **Undo/Redo**
-Full history stack. Keyboard: `Ctrl+Z` / `Ctrl+Shift+Z` (or `Cmd` on Mac).
-
-### 👁️ **Compare**
-Hold the compare button to see the original; release to return to edits.
+**[→ Live demo](https://charanprasanth.github.io/PhotoEditor/)**
 
 ---
 
-## How to Use
+## What it does
 
-### Opening a Photo
-- Click **Choose a photo** or drag & drop anywhere on the page
-- Supported: JPG, PNG, GIF, WebP, and other browser-native formats
+| Tool | What you can do |
+|------|-----------------|
+| **Looks** | 9 one-tap presets — Pop, Golden, Vintage, Faded Film, Noir, Cool, Drama, Soft Glow |
+| **Tune** | Exposure, brightness, contrast, saturation, warmth, tint, highlights, shadows |
+| **Selective** | Tap to drop up to 8 control points. Adjust brightness / contrast / saturation locally with smooth radial falloff |
+| **Heal** | Brush over a blemish or object. On release it samples 8 candidate patches, scores boundary match, blends the best one |
+| **Details** | Structure (unsharp mask) and soft blur |
+| **Effects** | Vignette, grain, fade |
+| **Crop** | Free or locked aspect (1:1, 4:3, 3:2, 16:9, original), rotate 90°, flip, straighten ±45° |
+| **Export** | JPEG / PNG / WebP at full original resolution |
+| **History** | Full undo / redo, hold-to-compare with original |
 
-### Editing Workflow
-1. **Pick a Look** — start with a preset or start from Original
-2. **Tune** — adjust exposure, contrast, warmth globally
-3. **Selective** — tap to add local control points, adjust individually
-4. **Heal** — paint over blemishes
-5. **Crop** — frame and rotate
-6. **Details** — sharpen or soften
-7. **Effects** — add grain, vignette, or fade
-8. **Export** — download at full resolution
-
-### Keyboard Shortcuts
-| Key | Action |
-|-----|--------|
-| `Ctrl+Z` / `Cmd+Z` | Undo |
-| `Ctrl+Shift+Z` / `Cmd+Shift+Z` | Redo |
-| `Delete` (in Selective mode) | Remove selected control point |
+Everything is local. Nothing uploads. No telemetry.
 
 ---
 
-## Technical Architecture
+## How it's built
 
-### Rendering Pipeline
-The editor runs a 5-pass rendering pipeline per frame:
+> This project was built as an experiment with **[Claude](https://claude.ai)** — testing how far an AI model can take a single-file, dependency-free web app. The entire codebase is one HTML file with vanilla JavaScript and Canvas 2D — no React, no npm, no build pipeline.
 
-1. **GPU Filters** — brightness, contrast, saturation, blur via `canvas.filter` (hardware-accelerated)
-2. **Global Pixel Ops** — warmth, tint, highlights/shadows, fade, grain (JavaScript pixel loop)
-3. **Selective Control Points** — local brightness/contrast/saturation with radial falloff
-4. **Sharpen** — 3×3 convolution unsharp mask
+### Architecture
+
+**5-pass rendering pipeline** for each preview frame:
+1. **GPU filters** — brightness, contrast, saturation, blur via hardware-accelerated `canvas.filter`
+2. **Global pixel ops** — warmth, tint, highlights/shadows, fade, grain
+3. **Selective control points** — local adjustments with radial Gaussian falloff
+4. **Unsharp mask** — 3×3 convolution for sharpening
 5. **Vignette** — radial gradient overlay
 
-### Canvas Architecture
-- **Preview Mode** — renders at up to 1280px on the longest edge for responsiveness
-- **Export Mode** — full-resolution pipeline using the original image
-- **Working Canvas** — holds heals baked into the original, fed to subsequent passes
+**Heal brush** stores strokes in **original image coordinates**, so they survive any later crop or rotation and apply at native pixels on export. Patch selection samples 8 candidate offsets around the stroke and scores each by ring-SSD boundary match.
 
-### Heal Implementation
-Heals are stored in **original image coordinates**:
-- Screen taps are inverse-mapped through the full transform matrix (rotation, flip, straighten, crop)
-- Strokes are baked into a full-resolution working canvas
-- On export, heals apply at native pixels
-- Undo/redo deterministically replays strokes
+**Selective points** live in normalized frame space and are remapped through every geometric transform (90° rotation, flip, crop).
 
-Patch selection algorithm:
-- Samples candidate patches in 8 directions around the stroke
-- Scores each by boundary color matching (sum of squared differences on a ring)
-- Picks the best match and blends with a feathered edge (quadratic falloff)
-
-### Selective Points
-Control points live in **normalized frame space** (0–1 in both axes):
-- Adjusted automatically when you rotate/flip/crop the image
-- Apply via a radial Gaussian-ish envelope (smooth falloff to 0 at the boundary)
-- Each point stores independent brightness, contrast, saturation, and size
-
-### Transform State
-Tracked separately from adjustments:
-- **Rotation** — 90° increments (stored as `rot` in degrees)
-- **Flips** — boolean flags (horizontal, vertical)
-- **Straighten** — continuous angle (–45° to +45°)
-- **Crop** — normalized rectangle {x, y, w, h} applied after all geometric transforms
+**Preview** renders downscaled to 1280px for responsiveness; **export** re-runs the full pipeline at native resolution so the result matches exactly.
 
 ---
 
-## Performance Notes
+## Try it locally
 
-- **Preview** downscaled to 1280px max for fast frame rates
-- **Selective points & heal** apply only during preview and export (no intermediate compositing)
-- **Undo/redo** stores full state snapshots (up to 60 history entries kept; oldest discarded)
-- **Heal strokes** processed on release, not live-painting (async would be better at scale)
+```bash
+git clone https://github.com/charanprasanth/PhotoEditor.git
+cd PhotoEditor
+open index.html        # macOS
+# or just double-click the file
+```
 
----
-
-## Limitations
-
-### Heal Brush
-Works best on:
-- ✅ Skin, sky, water, uniform textures
-- ❌ Large objects crossing structured backgrounds (e.g., person in front of a fence)
-
-Reason: patch-clone blending can show seams when the surrounding area is patterned. A real solution would need **PatchMatch-style inpainting**, which is computationally expensive in single-threaded JavaScript.
-
-### Selective Points
-- Max 8 points per image (reasonable UI limit; can be raised)
-- Points don't "follow" objects if you crop (they stay anchored to the frame)
-- No mask visualization beyond the dashed ring
-
-### Geometric Transforms
-- Straighten is applied **before** crop, so very large angles may introduce letterboxing
-- No perspective correction (lens distortion, tilt-shift)
-
-### Color Space
-- All ops are in sRGB; no ICC profile support
-- Highlights/shadows use simple luminance-based masks, not perceptual color spaces
+That's the whole install. There is no package.json.
 
 ---
 
-## Built With
+## Project structure
 
-**Claude** — an AI assistant by Anthropic. This editor was created as an experiment in how far a single-file, client-side photo app can go without server dependencies or specialized libraries. No frameworks, no build step, no npm packages — just HTML, CSS, and vanilla JavaScript using the Canvas 2D API.
-
-Reasoning behind this approach:
-- **Portability** — save one .html file, open in any browser
-- **Privacy** — all processing happens locally; nothing leaves your device
-- **Learning** — demonstrates rendering pipelines, geometric transforms, and healing algorithms from first principles
-- **Simplicity** — no deployment, no Node.js, no dependencies to manage
+```
+PhotoEditor/
+├── index.html        # the entire editor — HTML, CSS, JS, all in one file
+└── README.md         # this
+```
 
 ---
 
-## Browser Support
+## Keyboard shortcuts
 
-Works in all modern browsers with Canvas 2D support:
-- Chrome/Edge 90+
-- Firefox 88+
-- Safari 14+
-- Mobile browsers (iOS Safari, Chrome Android)
-
-File upload and drag-drop require File API support (broadly available).
-
----
-
-## What's Inside
-
-| File | Size | Role |
-|------|------|------|
-| `photo-editor.html` | ~37 KB | Single-file editor: HTML, CSS, JavaScript, Canvas rendering |
+| Key | Action |
+|-----|--------|
+| `Ctrl/⌘ + Z` | Undo |
+| `Ctrl/⌘ + Shift + Z` | Redo |
+| `Delete` | Remove selected control point (in Selective mode) |
+| `?` | Toggle help panel |
+| `Esc` | Close help panel |
 
 ---
 
-## Try It
+## Known limitations
 
-1. Open `photo-editor.html` in a browser
-2. Drag a photo onto the page or click **Choose a photo**
-3. Experiment: pick a look, add selective points, try the healing brush
-4. Export when happy
+These are honest gaps, not roadmap promises:
 
-No installation, no account, no telemetry.
+- **Heal on patterned backgrounds** — patch-clone blending shows seams when surroundings are structured (e.g. a person in front of a fence). A real fix needs PatchMatch-style inpainting, which would be slow in single-threaded JS.
+- **No layers, masks, or curves** — global tone curves and non-destructive layers aren't there. The selective tool covers most local edits in practice.
+- **sRGB only** — no ICC profile handling, no wide-gamut color.
+- **No RAW** — would need a TIFF/DNG decoder (large bundle, defeats the "one HTML file" goal).
+- **8 selective points max** — soft UI cap, raisable in code.
 
 ---
 
-## Future Ideas
+## Browser support
 
-Not implemented, but could be added:
-
-- **Mask visualization** — see the falloff zone for each control point
-- **Curves** — parametric tone curve adjustment (currently just highlights/shadows)
-- **Liquify** — local warping/smudging
-- **Inpainting** — PatchMatch-based content-aware fill (slow, but much better heals)
-- **RAW support** — would need a TIFF/DNG decoder (large)
-- **Presets as files** — save/load custom adjustment stacks
-- **Layers** — blend multiple edits non-destructively (adds complexity)
-- **AI upscaling** — would need a model (ONNX.js, TensorFlow.js)
+Tested in Chrome 90+, Firefox 88+, Safari 14+, and mobile Safari / Chrome. Requires `Canvas 2D` and the File API, both of which are essentially universal now.
 
 ---
 
 ## License
 
-Public domain. Use, modify, remix as you like.
+MIT. Use, fork, remix.
 
 ---
 
-**Questions?** This is a learning project. The code is intentionally readable — feel free to fork, experiment, or build on it.
+## Credits
+
+- **Built with [Claude](https://claude.ai)** by Anthropic, as a test of single-file AI-assisted web app development
+- Image-processing algorithms (unsharp mask, vignette, patch-based healing) implemented from first principles
+- Inspired by Snapseed's interaction model

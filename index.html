@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Darkroom — Photo Editor</title>
+<title>Darkroom — Free client-side photo editor</title>
+<meta name="description" content="A Snapseed-style photo editor that runs entirely in your browser. Selective edits, healing brush, presets, crop, and full-resolution export. Nothing leaves your device.">
+<meta name="theme-color" content="#0d0e10">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="Darkroom — Photo Editor">
+<meta property="og:description" content="A Snapseed-style photo editor that runs entirely in your browser. Built as an experiment with Claude.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://charanprasanth.github.io/PhotoEditor/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%230d0e10"/><circle cx="16" cy="16" r="6.5" fill="none" stroke="%23f2a33c" stroke-width="2"/><circle cx="16" cy="16" r="2.2" fill="%23f2a33c"/></svg>'>
 <style>
   :root{
     --bg:#0d0e10;
@@ -77,6 +86,51 @@
   #dropzone p{color:var(--text-dim);margin-bottom:22px;line-height:1.5}
   #stage.dragging #dropzone .frame{border-color:var(--accent);background:var(--accent-soft)}
   #stage.has-image #dropzone{display:none}
+  #dropzone .cta-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+  #dropzone .drop-hint{font-size:.8rem;margin-bottom:24px}
+  #dropzone .landing-tags{
+    list-style:none;display:flex;flex-wrap:wrap;justify-content:center;gap:6px;
+    padding:18px 0 0;border-top:1px solid var(--line);
+  }
+  #dropzone .landing-tags li{
+    font-size:.72rem;color:var(--text-dim);padding:4px 10px;
+    border:1px solid var(--line);border-radius:999px;
+  }
+
+  /* help modal */
+  #helpModal{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);
+    display:none;z-index:50;padding:20px;overflow-y:auto;
+  }
+  #helpModal.open{display:flex;align-items:flex-start;justify-content:center}
+  #helpModal .sheet{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    width:100%;max-width:640px;padding:24px 26px;margin:40px 0;
+  }
+  #helpModal h2{font-size:1.15rem;font-weight:600;margin-bottom:4px}
+  #helpModal .sub{color:var(--text-dim);font-size:.85rem;margin-bottom:18px}
+  #helpModal section{margin-bottom:18px}
+  #helpModal section h3{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:8px}
+  #helpModal .kbd-grid{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.85rem}
+  #helpModal kbd{
+    background:var(--surface-2);border:1px solid var(--line);border-radius:5px;
+    padding:2px 7px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;
+  }
+  #helpModal .feat{display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-size:.86rem}
+  #helpModal .feat b{color:var(--text);font-weight:600;min-width:88px;display:inline-block}
+  #helpModal .feat span{color:var(--text-dim)}
+  #helpModal .close-x{
+    float:right;width:32px;height:32px;border-radius:50%;background:var(--surface-2);
+    color:var(--text-dim);display:grid;place-items:center;margin:-6px -10px 0 0;
+  }
+  #helpModal .close-x:hover{color:var(--text)}
+  #helpModal a{color:var(--accent);text-decoration:none}
+  #helpModal a:hover{text-decoration:underline}
+  #helpModal footer{
+    margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:.78rem;color:var(--text-dim);text-align:center;
+  }
 
   /* toast */
   #toast{
@@ -226,6 +280,9 @@
   <button class="icon-btn" id="newBtn" title="Open another photo" disabled>
     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/></svg>
   </button>
+  <button class="icon-btn" id="helpBtn" title="Help & shortcuts (?)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5"/><path d="M12 17h0"/></svg>
+  </button>
   <button class="pill-btn" id="exportBtn" disabled>Export</button>
 </header>
 
@@ -234,10 +291,17 @@
     <div class="frame">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.5-4.5L7 20"/></svg>
     </div>
-    <h1>Open a photo to start editing</h1>
-    <p>Looks, tune, selective edits, healing, crop and effects — everything stays on your device.</p>
-    <button class="pill-btn" id="openBtn">Choose a photo</button>
-    <p style="margin-top:14px;font-size:.8rem">or drag &amp; drop it anywhere</p>
+    <h1>A photo editor that runs in your browser</h1>
+    <p>Looks, fine-tune, selective edits, healing brush, crop and effects. Nothing uploads — every pixel stays on your device.</p>
+    <div class="cta-row">
+      <button class="pill-btn" id="openBtn">Choose a photo</button>
+      <button class="ghost-btn" id="sampleBtn">Try a sample</button>
+    </div>
+    <p class="drop-hint">or drag &amp; drop a JPG, PNG or WebP anywhere</p>
+    <ul class="landing-tags">
+      <li>9 looks</li><li>8 tune sliders</li><li>Control points</li>
+      <li>Healing brush</li><li>Crop &amp; straighten</li><li>Full-res export</li>
+    </ul>
   </div>
   <canvas id="canvas"></canvas>
 
@@ -402,6 +466,49 @@
 </div>
 
 <input type="file" id="fileInput" accept="image/*" hidden>
+
+<div id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+  <div class="sheet">
+    <button class="close-x" id="helpClose" aria-label="Close">✕</button>
+    <h2 id="helpTitle">Darkroom — how it works</h2>
+    <p class="sub">A client-side photo editor. No uploads, no accounts, no tracking.</p>
+
+    <section>
+      <h3>Features</h3>
+      <div class="feat"><b>Looks</b><span>9 curated one-tap presets — Pop, Golden, Vintage, Noir, Drama, more.</span></div>
+      <div class="feat"><b>Tune</b><span>Exposure, brightness, contrast, saturation, warmth, tint, highlights, shadows.</span></div>
+      <div class="feat"><b>Selective</b><span>Tap to drop up to 8 control points. Drag to move. Adjust each locally.</span></div>
+      <div class="feat"><b>Heal</b><span>Brush over a blemish; it samples the surrounding area on release.</span></div>
+      <div class="feat"><b>Crop</b><span>Free or fixed aspect, rotate, flip, straighten ±45°.</span></div>
+      <div class="feat"><b>Effects</b><span>Vignette, grain, fade. Structure and soft blur in Details.</span></div>
+      <div class="feat"><b>Export</b><span>JPEG, PNG, or WebP at full original resolution.</span></div>
+    </section>
+
+    <section>
+      <h3>Keyboard shortcuts</h3>
+      <div class="kbd-grid">
+        <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>Undo</span>
+        <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></span><span>Redo</span>
+        <span><kbd>Delete</kbd></span><span>Remove selected control point (Selective mode)</span>
+        <span><kbd>?</kbd></span><span>Toggle this help panel</span>
+        <span><kbd>Esc</kbd></span><span>Close this panel</span>
+      </div>
+      <p class="sub" style="margin-top:6px">On Mac, use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd>.</p>
+    </section>
+
+    <section>
+      <h3>Tips</h3>
+      <div class="feat"><b>Compare</b><span>Hold the rectangle button in the header to see the original.</span></div>
+      <div class="feat"><b>Heal works best</b><span>On skin, sky, water and texture. Patterned backgrounds may seam.</span></div>
+      <div class="feat"><b>Selective</b><span>Smaller size = tighter falloff. The dashed ring shows the reach.</span></div>
+    </section>
+
+    <footer>
+      Built as an experiment with Claude. Source on
+      <a href="https://github.com/charanprasanth/PhotoEditor" target="_blank" rel="noopener">GitHub</a>.
+    </footer>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -1225,6 +1332,85 @@ $("#openBtn").addEventListener("click", ()=>fileInput.click());
 $("#newBtn").addEventListener("click", ()=>fileInput.click());
 fileInput.addEventListener("change", ()=>{ if (fileInput.files[0]) loadFile(fileInput.files[0]); fileInput.value=""; });
 
+/* generate a procedural sample so first-time visitors can try the editor without an upload */
+$("#sampleBtn").addEventListener("click", ()=>{
+  const W = 1600, H = 1067;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d");
+
+  // sky gradient
+  const sky = g.createLinearGradient(0,0,0,H*0.7);
+  sky.addColorStop(0, "#1d2a4a");
+  sky.addColorStop(0.4, "#3b5478");
+  sky.addColorStop(0.85, "#d97b4c");
+  sky.addColorStop(1, "#f3b173");
+  g.fillStyle = sky; g.fillRect(0,0,W,H*0.7);
+
+  // sun
+  const sun = g.createRadialGradient(W*0.72, H*0.55, 0, W*0.72, H*0.55, 200);
+  sun.addColorStop(0, "rgba(255,235,180,1)");
+  sun.addColorStop(0.3, "rgba(255,200,120,0.6)");
+  sun.addColorStop(1, "rgba(255,180,90,0)");
+  g.fillStyle = sun; g.fillRect(0,0,W,H);
+
+  // distant mountains
+  g.fillStyle = "#2a3851";
+  g.beginPath();
+  g.moveTo(0, H*0.6);
+  [0.15,0.3,0.45,0.6,0.78,0.9,1].forEach(x=>{
+    g.lineTo(W*x, H*(0.55 + Math.sin(x*9)*0.04));
+  });
+  g.lineTo(W, H*0.7); g.lineTo(0, H*0.7); g.closePath(); g.fill();
+
+  g.fillStyle = "#1c2638";
+  g.beginPath(); g.moveTo(0, H*0.66);
+  [0.1,0.25,0.4,0.55,0.7,0.85,1].forEach(x=>{
+    g.lineTo(W*x, H*(0.62 + Math.sin(x*12+1)*0.03));
+  });
+  g.lineTo(W, H*0.72); g.lineTo(0, H*0.72); g.closePath(); g.fill();
+
+  // water reflection
+  const water = g.createLinearGradient(0,H*0.7,0,H);
+  water.addColorStop(0, "#1a2030");
+  water.addColorStop(0.5, "#2c3a4c");
+  water.addColorStop(1, "#0d1018");
+  g.fillStyle = water; g.fillRect(0,H*0.7,W,H*0.3);
+
+  // ripples
+  g.strokeStyle = "rgba(255,200,140,0.18)";
+  g.lineWidth = 2;
+  for (let i=0;i<22;i++){
+    const y = H*0.7 + i*8 + Math.random()*4;
+    g.beginPath();
+    for (let x=0;x<W;x+=20) g.lineTo(x, y + Math.sin(x*0.02 + i)*2);
+    g.stroke();
+  }
+
+  // foreground silhouette
+  g.fillStyle = "#0a0d14";
+  g.beginPath();
+  g.moveTo(0, H*0.78);
+  g.bezierCurveTo(W*0.3, H*0.74, W*0.6, H*0.82, W, H*0.78);
+  g.lineTo(W,H); g.lineTo(0,H); g.closePath(); g.fill();
+
+  // small "blemish" so heal brush has something to try on
+  g.fillStyle = "rgba(220,200,180,0.85)";
+  g.beginPath(); g.arc(W*0.35, H*0.42, 9, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.arc(W*0.42, H*0.46, 6, 0, Math.PI*2); g.fill();
+
+  c.toBlob(blob=>{
+    if (blob) loadFile(new File([blob], "sample-sunset.jpg", {type:"image/jpeg"}));
+  }, "image/jpeg", 0.92);
+});
+
+/* help modal */
+const helpModal = $("#helpModal");
+function openHelp(){ helpModal.classList.add("open"); }
+function closeHelp(){ helpModal.classList.remove("open"); }
+$("#helpBtn").addEventListener("click", openHelp);
+$("#helpClose").addEventListener("click", closeHelp);
+helpModal.addEventListener("click", e=>{ if (e.target === helpModal) closeHelp(); });
+
 ["dragover","dragenter"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); stage.classList.add("dragging"); }));
 ["dragleave","drop"].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); if(ev==="drop"||e.target===document.documentElement) stage.classList.remove("dragging"); }));
 document.addEventListener("drop", e=>{
@@ -1285,10 +1471,12 @@ $("#downloadBtn").addEventListener("click", async ()=>{
 
 /* keyboard shortcuts */
 document.addEventListener("keydown", e=>{
-  if (e.target.matches("input,select")) return;
+  if (e.key === "Escape" && helpModal.classList.contains("open")){ closeHelp(); return; }
+  if (e.target.matches("input,select,textarea")) return;
   if ((e.ctrlKey||e.metaKey) && e.key==="z" && !e.shiftKey){ e.preventDefault(); $("#undoBtn").click(); }
   if ((e.ctrlKey||e.metaKey) && (e.key==="y" || (e.key==="z"&&e.shiftKey))){ e.preventDefault(); $("#redoBtn").click(); }
   if (e.key==="Delete" && mode==="selective"){ $("#delPoint").click(); }
+  if (e.key === "?" || (e.key === "/" && e.shiftKey)){ e.preventDefault(); helpModal.classList.contains("open") ? closeHelp() : openHelp(); }
 });
 </script>
 </body>
