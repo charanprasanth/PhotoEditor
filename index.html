@@ -70,7 +70,7 @@
     overflow:hidden;min-height:0;
     background:radial-gradient(ellipse at 50% 40%, #15171b 0%, var(--bg) 70%);
   }
-  #canvas{max-width:calc(100% - 32px);max-height:calc(100% - 32px);
+  #canvas{max-width:calc(100% - 16px);max-height:calc(100% - 16px);
     box-shadow:0 12px 50px rgba(0,0,0,.6);border-radius:4px;display:none}
   #stage.has-image #canvas{display:block}
 
@@ -185,7 +185,8 @@
   /* ── bottom panel ───────────────────── */
   #panel{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);display:none}
   body.has-image #panel{display:block}
-  .tool-body{padding:12px 14px 6px;min-height:96px}
+  .tool-body{padding:10px 14px 4px;max-height:34vh;overflow-y:auto;min-height:80px}
+  @media (min-height:700px){.tool-body{max-height:28vh}}
   .tool-pane{display:none}
   .tool-pane.active{display:block}
   .hint{font-size:.8rem;color:var(--text-dim);margin-bottom:8px}
@@ -195,11 +196,11 @@
   #tabs{display:flex;border-top:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
   #tabs::-webkit-scrollbar{display:none}
   .tab{
-    flex:1;min-width:70px;padding:10px 6px 12px;display:flex;flex-direction:column;align-items:center;gap:5px;
+    flex:1;min-width:70px;padding:8px 6px 9px;display:flex;flex-direction:column;align-items:center;gap:4px;
     color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;
     border-top:2px solid transparent;transition:color .15s;
   }
-  .tab svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .tab svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   .tab.active{color:var(--accent);border-top-color:var(--accent)}
   .tab:hover{color:var(--text)}
   .tab.active:hover{color:var(--accent)}
@@ -240,7 +241,7 @@
   .look.active span{color:var(--accent)}
 
   /* rows / chips */
-  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
   .chip{
     padding:7px 14px;border-radius:999px;background:var(--surface-2);
     font-size:.8rem;color:var(--text-dim);border:1px solid transparent;transition:all .15s;
@@ -400,16 +401,15 @@
         <button class="chip" id="rotR" title="Rotate right">⟳ 90°</button>
         <button class="chip" id="flipH">Flip ↔</button>
         <button class="chip" id="flipV">Flip ↕</button>
+        <span class="spacer-flex" style="flex:1"></span>
+        <button class="pill-btn" id="cropApply" style="padding:7px 16px;font-size:.85rem">Apply</button>
+        <button class="ghost-btn" id="cropReset" style="padding:7px 14px">Reset</button>
       </div>
-      <div class="ctl changed" style="max-width:520px">
+      <div class="ctl changed" style="max-width:none;margin-top:2px">
         <label for="straighten">Straighten</label>
         <input type="range" id="straighten" min="-45" max="45" value="0" step="0.5">
         <output id="straightenOut">0°</output>
         <button class="reset" id="straightenReset" title="Reset">×</button>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button class="pill-btn" id="cropApply">Apply crop</button>
-        <button class="ghost-btn" id="cropReset">Reset crop &amp; rotation</button>
       </div>
     </div>
 
